@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+*.log
+audit_log.csv
+quiz_results.csv
