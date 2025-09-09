@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+
+# cancel older runs on the same branch
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12']   # add '3.11' if you want multi-version
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Lightweight health check: import the Flask app, hit "/" and "/check"
+      - name: Run smoke tests
+        run: |
+          python - << 'PY'
+          from app import app
+          c = app.test_client()
+
+          # GET home
+          r = c.get("/")
+          assert r.status_code == 200, f"Home failed: {r.status_code}"
+
+          # POST a quick check to also create CSV entries
+          payload = {"scenario":"", "role":"Administrator", "resource":"Compliance_File", "action":"read"}
+          r2 = c.post("/check", data=payload, follow_redirects=True)
+          assert r2.status_code == 200, f"/check failed: {r2.status_code}"
+          txt = r2.get_data(as_text=True)
+          assert "Permission" in txt, "Expected decision text not found"
+          print("✅ Smoke test passed")
+          PY
+
+      # Keep logs visible when debugging (non-blocking if none exist)
+      - name: Upload CSV artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulator-artifacts
+          path: |
+            audit_log.csv
+            quiz_results.csv
+          if-no-files-found: ignore
